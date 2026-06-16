@@ -9,12 +9,14 @@ class ExperimentConfig:
     population_size: int = 8
     iteration_count: int = 15
     search_epochs: int = 6
-    final_epochs: int = 20
+    final_epochs: int = 50
     batch_size: int = 128
     learning_rate: float = 1e-3
     subset_size: Optional[int] = None
     random_seed: int = 42
-    patience: int = 5
+    patience: int = 10
+    lr_reduce_factor: float = 0.5
+    lr_reduce_patience: int = 4
     runs: int = 1
     monitor_ratio: float = 0.1
     train_size: int = 45000

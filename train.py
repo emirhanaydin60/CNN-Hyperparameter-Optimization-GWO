@@ -152,10 +152,18 @@ def train_model(
     epochs,
     patience,
     logger,
+    lr_reduce_factor=0.5,
+    lr_reduce_patience=4,
     checkpoint_path=None,
 ):
     criterion = nn.CrossEntropyLoss()
     optimizer = create_optimizer(model, learning_rate)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer,
+        mode="max",
+        factor=lr_reduce_factor,
+        patience=lr_reduce_patience,
+    )
 
     history = {
         "train_accuracy": [],
@@ -199,6 +207,8 @@ def train_model(
                 torch.save(best_state, checkpoint_path)
         else:
             patience_counter += 1
+
+        scheduler.step(val_metrics["accuracy"])
 
         if patience is not None and patience_counter >= patience:
             logger.info("early_stopping triggered at epoch=%s", epoch)
@@ -664,6 +674,8 @@ def run_baseline_experiment(bundle, config, device, logger, run_dir):
         learning_rate=config.learning_rate,
         epochs=config.final_epochs,
         patience=config.patience,
+        lr_reduce_factor=config.lr_reduce_factor,
+        lr_reduce_patience=config.lr_reduce_patience,
         logger=logger,
         checkpoint_path=checkpoint_path,
     )
@@ -718,6 +730,8 @@ def run_gwo_search(bundle, config, device, logger, run_dir):
                 learning_rate=model_config["learning_rate"],
                 epochs=config.search_epochs,
                 patience=config.patience,
+                lr_reduce_factor=config.lr_reduce_factor,
+                lr_reduce_patience=config.lr_reduce_patience,
                 logger=logger,
             )
             evaluation_time = time.perf_counter() - eval_start
@@ -774,6 +788,8 @@ def run_final_gwo_experiment(bundle, config, best_config, device, logger, run_di
         learning_rate=best_config["learning_rate"],
         epochs=config.final_epochs,
         patience=config.patience,
+        lr_reduce_factor=config.lr_reduce_factor,
+        lr_reduce_patience=config.lr_reduce_patience,
         logger=logger,
         checkpoint_path=best_model_path,
     )
