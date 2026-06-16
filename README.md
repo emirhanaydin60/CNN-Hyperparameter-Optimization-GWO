@@ -1,35 +1,41 @@
 # CNN Hyperparameter Optimization with GWO
 
-Bu proje, Fashion-MNIST veri seti üzerinde Grey Wolf Optimizer (GWO) kullanarak bir CNN modelinin hiperparametrelerini optimize eden, sonuçları akademik raporlamaya uygun şekilde kaydeden deney paketidir.
+Bu proje, CIFAR-10 veri seti üzerinde çalışan sabit bir HybridCNN mimarisinin hiperparametrelerini Grey Wolf Optimizer (GWO) ile optimize eden, sonuçları akademik raporlamaya uygun şekilde kaydeden deney paketidir.
 
 ## Proje Amacı
 
-Amaç, optimize edilmemiş bir baseline CNN ile GWO ile optimize edilmiş CNN modelini karşılaştırmak ve optimizasyonun test doğruluğuna etkisini ölçmektir. Tüm arama süreci validation accuracy üzerinden yürütülür; test seti yalnızca final değerlendirmede kullanılır.
+Amaç, sabit HybridCNN mimarisi üzerinde baseline deney ile GWO ile optimize edilmiş modeli karşılaştırmak ve optimizasyonun test doğruluğuna etkisini ölçmektir. Tüm arama süreci validation accuracy üzerinden yürütülür; test seti yalnızca final değerlendirmede kullanılır.
 
 ## Veri Seti
 
-- Veri seti: Fashion-MNIST
-- Toplam eğitim verisi: 60.000 örnek
-- Bölünme: 55.000 train, 5.000 validation, 10.000 test
+- Veri seti: CIFAR-10
+- Görüntü boyutu: 32x32 RGB
+- Giriş kanalı: 3
+- Sınıf sayısı: 10
+- Bölünme: 45.000 train, 5.000 validation, 10.000 test
 
 ## CNN Mimarisi
 
-Kullanılan model basit bir CNN’dir:
+Kullanılan model sabit bir HybridCNN’dir:
 
-- 1. Conv2d + ReLU + MaxPool2d
-- 2. Conv2d + ReLU + MaxPool2d
-- Flatten
-- Fully connected katman
-- Dropout
-- Çıkış katmanı
+- Stem: Conv + BatchNorm + ReLU
+- Residual Block
+- Inception-Lite Block
+- Residual Block
+- SE Attention Block
+- Global Average Pooling
+- Dense + Dropout + Output Layer
 
-Optimizasyona açık hiperparametreler:
+GWO tarafından optimize edilen hiperparametreler:
 
-- `filter_size`
-- `filters`
+- `kernel_size`
+- `base_filters`
 - `dilation`
 - `final_neurons`
 - `dropout`
+- `learning_rate`
+- `batch_size`
+- `se_ratio`
 
 ## GWO Algoritması
 
@@ -57,13 +63,13 @@ Tüm deney parametreleri merkezi olarak `config.py` içinde tutulur veya JSON ü
 Tek koşu:
 
 ```bash
-python train.py --population-size 6 --iteration-count 10 --search-epochs 2 --final-epochs 20
+python train.py --population-size 12 --iteration-count 15 --search-epochs 6 --final-epochs 20
 ```
 
 Çoklu koşu:
 
 ```bash
-python train.py --runs 3 --population-size 6 --iteration-count 10 --search-epochs 2 --final-epochs 20
+python train.py --runs 3 --population-size 12 --iteration-count 15 --search-epochs 6 --final-epochs 20
 ```
 
 JSON konfigürasyon ile:
@@ -83,6 +89,7 @@ python train.py --config my_config.json
 - `timing.txt`
 - `convergence.txt`
 - `confusion_analysis.txt`
+- `diversity_analysis.txt`
 - `summary.csv`
 - `search_history.csv`
 - `search_space.json`
@@ -100,9 +107,10 @@ python train.py --config my_config.json
 - `statistics.txt`: çoklu koşularda accuracy ve improvement için mean/std özetleri
 - `timing.txt`: optimizasyon, baseline eğitim, final eğitim ve toplam deney süreleri
 - `convergence.txt`: GWO yakınsama özeti
+- `diversity_analysis.txt`: iterasyon bazlı unique solution ve fitness özeti
 - `confusion_analysis.txt`: en çok karışan sınıflar ve sınıf bazlı doğruluk analizi
 - `summary.csv`: her koşu için kısa karşılaştırma tablosu
-- `search_history.csv`: her fitness değerlendirmesinin kayıtları
+- `search_history.csv`: her fitness değerlendirmesinin kayıtları ve değerlendirme süreleri
 - `search_space.json`: arama uzayı tanımı
 - `config_used.json`: deneyde kullanılan konfigürasyon
 - `run.log`: deney sürecinin log kaydı

@@ -5,12 +5,13 @@ import numpy as np
 
 
 class GreyWolfOptimizer:
-    def __init__(self, fitness_func, bounds, population=5, iterations=10):
+    def __init__(self, fitness_func, bounds, population=5, iterations=10, solution_signature_func=None):
         self.fitness_func = fitness_func
         self.bounds = bounds
         self.dim = len(bounds)
         self.population = population
         self.iterations = iterations
+        self.solution_signature_func = solution_signature_func
 
     def _initialize(self):
         wolves = []
@@ -25,10 +26,15 @@ class GreyWolfOptimizer:
         except TypeError:
             return self.fitness_func(position)
 
+    def _signature(self, position):
+        if self.solution_signature_func is not None:
+            return self.solution_signature_func(position)
+        return tuple(np.round(position, 6).tolist())
+
     def optimize(self):
         total_start = time.perf_counter()
         wolves = self._initialize()
-        fitness = [self._evaluate(w, iteration=1, wolf_id=i + 1) for i, w in enumerate(wolves)]
+        fitness = [self._evaluate(w, iteration=0, wolf_id=i + 1) for i, w in enumerate(wolves)]
 
         pbest_pos = [w.copy() for w in wolves]
         pbest_fit = fitness.copy()
@@ -36,7 +42,20 @@ class GreyWolfOptimizer:
         global_bests = []
         local_bests = []
         iteration_times = []
+        iteration_summaries = []
         evaluation_count = len(wolves)
+
+        initial_signatures = [self._signature(w) for w in wolves]
+        initial_unique_count = len(set(initial_signatures))
+        iteration_summaries.append(
+            {
+                "iteration": 0,
+                "unique_solution_count": initial_unique_count,
+                "repeat_rate": 1.0 - (initial_unique_count / max(len(initial_signatures), 1)),
+                "average_fitness": float(np.mean(fitness)),
+                "best_fitness": float(np.max(fitness)),
+            }
+        )
 
         for iteration in range(1, self.iterations + 1):
             iter_start = time.perf_counter()
@@ -83,9 +102,20 @@ class GreyWolfOptimizer:
                     pbest_fit[wolf_index] = fitness[wolf_index]
                     pbest_pos[wolf_index] = wolves[wolf_index].copy()
 
+            current_signatures = [self._signature(w) for w in wolves]
+            unique_solution_count = len(set(current_signatures))
             local_bests.append(pbest_fit.copy())
             global_bests.append(float(np.max(pbest_fit)))
             iteration_times.append(time.perf_counter() - iter_start)
+            iteration_summaries.append(
+                {
+                    "iteration": iteration,
+                    "unique_solution_count": unique_solution_count,
+                    "repeat_rate": 1.0 - (unique_solution_count / max(len(current_signatures), 1)),
+                    "average_fitness": float(np.mean(fitness)),
+                    "best_fitness": float(np.max(fitness)),
+                }
+            )
 
         best_index = int(np.argmax(pbest_fit))
         best_pos = pbest_pos[best_index]
@@ -99,6 +129,7 @@ class GreyWolfOptimizer:
             "global_bests": global_bests,
             "local_bests": local_bests,
             "iteration_times": iteration_times,
+            "iteration_summaries": iteration_summaries,
             "total_optimization_time": total_time,
             "evaluation_count": evaluation_count,
         }

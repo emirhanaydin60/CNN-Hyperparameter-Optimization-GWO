@@ -13,10 +13,10 @@ import torch.optim as optim
 from torch.utils.data import ConcatDataset, DataLoader, random_split
 
 from config import config_to_dict, load_config, save_config
-from data_loader import DataBundle, build_data_bundle
+from data_loader import DataBundle, build_data_bundle, build_data_loader
 from gwo import GreyWolfOptimizer
 from metrics import build_confusion_matrix, evaluate_model, normalize_confusion_matrix, train_one_epoch
-from model import SimpleCNN
+from model import HybridCNN
 from plotting import plot_confusion_matrix, plot_curves, plot_global, plot_locals
 from utils import ensure_dir, make_torch_generator, set_global_seed, setup_logging, write_json
 
@@ -35,54 +35,108 @@ CLASS_NAMES = [
 
 
 def build_model(model_config, in_channels, img_size, num_classes):
-    return SimpleCNN(
+    return HybridCNN(
         in_channels=in_channels,
         img_size=img_size,
-        filter_size=model_config["filter_size"],
-        filters=model_config["filters"],
+        kernel_size=model_config["kernel_size"],
+        base_filters=model_config["base_filters"],
         dilation=model_config["dilation"],
         final_neurons=model_config["final_neurons"],
         dropout=model_config["dropout"],
+        se_ratio=model_config["se_ratio"],
         num_classes=num_classes,
     )
 
 
 def map_position_to_config(position, config):
     search_space = config.search_space
-    filter_sizes = search_space["filter_sizes"]
-    filter_counts = search_space["filter_counts"]
+    kernel_sizes = search_space["kernel_sizes"]
+    base_filters = search_space["base_filters"]
     dilations = search_space["dilations"]
     final_neurons = search_space["final_neurons"]
+    batch_sizes = search_space["batch_sizes"]
+    se_ratios = search_space["se_ratios"]
 
-    fs_idx = int(round(position[0]))
-    fc_idx = int(round(position[1]))
-    d_idx = int(round(position[2]))
-    fn_idx = int(round(position[3]))
+    kernel_idx = int(round(position[0]))
+    base_idx = int(round(position[1]))
+    dilation_idx = int(round(position[2]))
+    final_idx = int(round(position[3]))
     dropout = float(position[4])
+    learning_rate_log = float(position[5])
+    batch_idx = int(round(position[6]))
+    se_idx = int(round(position[7]))
 
-    fs_idx = max(0, min(fs_idx, len(filter_sizes) - 1))
-    fc_idx = max(0, min(fc_idx, len(filter_counts) - 1))
-    d_idx = max(0, min(d_idx, len(dilations) - 1))
-    fn_idx = max(0, min(fn_idx, len(final_neurons) - 1))
+    kernel_idx = max(0, min(kernel_idx, len(kernel_sizes) - 1))
+    base_idx = max(0, min(base_idx, len(base_filters) - 1))
+    dilation_idx = max(0, min(dilation_idx, len(dilations) - 1))
+    final_idx = max(0, min(final_idx, len(final_neurons) - 1))
+    batch_idx = max(0, min(batch_idx, len(batch_sizes) - 1))
+    se_idx = max(0, min(se_idx, len(se_ratios) - 1))
+
+    learning_rate_min = search_space["learning_rate_min"]
+    learning_rate_max = search_space["learning_rate_max"]
+    learning_rate_log_min = float(np.log10(learning_rate_min))
+    learning_rate_log_max = float(np.log10(learning_rate_max))
+    learning_rate_log = max(learning_rate_log_min, min(learning_rate_log, learning_rate_log_max))
+    learning_rate = float(10**learning_rate_log)
 
     return {
-        "filter_size": filter_sizes[fs_idx],
-        "filters": filter_counts[fc_idx],
-        "dilation": dilations[d_idx],
-        "final_neurons": final_neurons[fn_idx],
+        "kernel_size": kernel_sizes[kernel_idx],
+        "base_filters": base_filters[base_idx],
+        "dilation": dilations[dilation_idx],
+        "final_neurons": final_neurons[final_idx],
         "dropout": dropout,
+        "learning_rate": learning_rate,
+        "batch_size": batch_sizes[batch_idx],
+        "se_ratio": se_ratios[se_idx],
     }
 
 
 def build_bounds(config):
     search_space = config.search_space
     return [
-        (0, len(search_space["filter_sizes"]) - 1),
-        (0, len(search_space["filter_counts"]) - 1),
+        (0, len(search_space["kernel_sizes"]) - 1),
+        (0, len(search_space["base_filters"]) - 1),
         (0, len(search_space["dilations"]) - 1),
         (0, len(search_space["final_neurons"]) - 1),
         (search_space["dropout_min"], search_space["dropout_max"]),
+        (float(np.log10(search_space["learning_rate_min"])), float(np.log10(search_space["learning_rate_max"]))),
+        (0, len(search_space["batch_sizes"]) - 1),
+        (0, len(search_space["se_ratios"]) - 1),
     ]
+
+
+def position_signature(position, config):
+    model_config = map_position_to_config(position, config)
+    return (
+        model_config["kernel_size"],
+        model_config["base_filters"],
+        model_config["dilation"],
+        model_config["final_neurons"],
+        round(model_config["dropout"], 4),
+        round(model_config["learning_rate"], 6),
+        model_config["batch_size"],
+        model_config["se_ratio"],
+    )
+
+
+def solution_cache_key(model_config):
+    return (
+        model_config["kernel_size"],
+        model_config["base_filters"],
+        model_config["dilation"],
+        model_config["final_neurons"],
+        round(model_config["dropout"], 4),
+        round(model_config["learning_rate"], 6),
+        model_config["batch_size"],
+        model_config["se_ratio"],
+    )
+
+
+def build_candidate_loaders(bundle: DataBundle, batch_size: int, seed: int, num_workers: int):
+    train_loader = build_data_loader(bundle.train_dataset, batch_size, seed, num_workers, shuffle=True)
+    val_loader = build_data_loader(bundle.val_dataset, batch_size, seed + 1, num_workers, shuffle=False)
+    return train_loader, val_loader
 
 
 def create_optimizer(model, learning_rate):
@@ -155,22 +209,27 @@ def train_model(
     return model, history, best_val_accuracy, best_epoch, train_time
 
 
-def append_search_history(csv_path, iteration, wolf_id, model_config, fitness):
+def append_search_history(csv_path, iteration, wolf_id, model_config, fitness, evaluation_time, cache_hit):
     file_exists = os.path.exists(csv_path)
     with open(csv_path, mode="a", newline="", encoding="utf-8") as file_handle:
         writer = csv.writer(file_handle)
         if not file_exists:
-            writer.writerow(["iteration", "wolf_id", "filter_size", "filters", "dilation", "final_neurons", "dropout", "fitness"])
+            writer.writerow(["iteration", "wolf_id", "kernel_size", "base_filters", "dilation", "final_neurons", "dropout", "learning_rate", "batch_size", "se_ratio", "fitness", "evaluation_time", "cache_hit"])
         writer.writerow(
             [
                 iteration,
                 wolf_id,
-                model_config["filter_size"],
-                model_config["filters"],
+                model_config["kernel_size"],
+                model_config["base_filters"],
                 model_config["dilation"],
                 model_config["final_neurons"],
                 f"{model_config['dropout']:.4f}",
+                f"{model_config['learning_rate']:.6f}",
+                model_config["batch_size"],
+                model_config["se_ratio"],
                 f"{fitness:.6f}",
+                f"{evaluation_time:.6f}",
+                cache_hit,
             ]
         )
 
@@ -178,14 +237,49 @@ def append_search_history(csv_path, iteration, wolf_id, model_config, fitness):
 def write_search_space_file(config, output_path):
     search_space = config.search_space
     payload = {
-        "FILTER_SIZES": search_space["filter_sizes"],
-        "FILTER_COUNTS": search_space["filter_counts"],
+        "KERNEL_SIZES": search_space["kernel_sizes"],
+        "BASE_FILTERS": search_space["base_filters"],
         "DILATIONS": search_space["dilations"],
         "FINAL_NEURONS": search_space["final_neurons"],
+        "SE_RATIOS": search_space["se_ratios"],
+        "BATCH_SIZES": search_space["batch_sizes"],
+        "LEARNING_RATE_MIN": search_space["learning_rate_min"],
+        "LEARNING_RATE_MAX": search_space["learning_rate_max"],
         "DROPOUT_MIN": search_space["dropout_min"],
         "DROPOUT_MAX": search_space["dropout_max"],
     }
     write_json(output_path, payload)
+
+
+def augment_search_history_with_diversity(csv_path, iteration_summaries):
+    if not os.path.exists(csv_path):
+        return
+
+    with open(csv_path, mode="r", newline="", encoding="utf-8") as file_handle:
+        rows = list(csv.DictReader(file_handle))
+        fieldnames = list(rows[0].keys()) if rows else []
+
+    summary_by_iteration = {summary["iteration"]: summary for summary in iteration_summaries}
+    for row in rows:
+        iteration = int(row["iteration"])
+        summary = summary_by_iteration.get(iteration, {})
+        row["combination_key"] = f"ks={row['kernel_size']};bf={row['base_filters']};d={row['dilation']};fn={row['final_neurons']};dr={row['dropout']};lr={row.get('learning_rate', '')};bs={row.get('batch_size', '')};se={row.get('se_ratio', '')}"
+        row["iteration_unique_solutions"] = summary.get("unique_solution_count", "")
+        row["iteration_repeat_rate"] = f"{summary.get('repeat_rate', 0.0):.6f}" if summary else ""
+        row["iteration_avg_fitness"] = f"{summary.get('average_fitness', 0.0):.6f}" if summary else ""
+        row["iteration_best_fitness"] = f"{summary.get('best_fitness', 0.0):.6f}" if summary else ""
+
+    extended_fieldnames = fieldnames + [
+        "combination_key",
+        "iteration_unique_solutions",
+        "iteration_repeat_rate",
+        "iteration_avg_fitness",
+        "iteration_best_fitness",
+    ]
+    with open(csv_path, mode="w", newline="", encoding="utf-8") as file_handle:
+        writer = csv.DictWriter(file_handle, fieldnames=extended_fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def compute_convergence_metrics(global_bests):
@@ -235,6 +329,11 @@ def analyze_confusion_matrix(confusion_matrix, class_names):
 
 def write_convergence_file(output_path, convergence_metrics):
     with open(output_path, "w", encoding="utf-8") as file_handle:
+        file_handle.write("iteration,best_fitness,average_fitness,unique_solution_count\n")
+        for summary in convergence_metrics.get("iteration_summaries", []):
+            file_handle.write(f"{summary['iteration']},{summary['best_fitness']:.6f},{summary['average_fitness']:.6f},{summary['unique_solution_count']}\n")
+        file_handle.write("\n")
+        file_handle.write(f"Unique Solutions Evaluated: {convergence_metrics.get('unique_solutions_evaluated', 0)}\n")
         file_handle.write(f"first_iter_fitness: {convergence_metrics['first_fitness']:.6f}\n")
         file_handle.write(f"last_iter_fitness: {convergence_metrics['last_fitness']:.6f}\n")
         file_handle.write(f"fitness_increase: {convergence_metrics['fitness_increase']:.6f}\n")
@@ -248,6 +347,13 @@ def write_confusion_analysis_file(output_path, confusion_analysis):
             file_handle.write(f"{true_name} -> {pred_name}: {count}\n")
         file_handle.write(f"Best Accuracy Class: {confusion_analysis['best_class'][0]} ({confusion_analysis['best_class'][1]:.6f})\n")
         file_handle.write(f"Worst Accuracy Class: {confusion_analysis['worst_class'][0]} ({confusion_analysis['worst_class'][1]:.6f})\n")
+
+
+def write_diversity_analysis_file(output_path, iteration_summaries):
+    with open(output_path, "w", encoding="utf-8") as file_handle:
+        file_handle.write("iteration,unique_solution_count,repeat_rate,average_fitness,best_fitness\n")
+        for summary in iteration_summaries:
+            file_handle.write(f"{summary['iteration']},{summary['unique_solution_count']},{summary['repeat_rate']:.6f},{summary['average_fitness']:.6f},{summary['best_fitness']:.6f}\n")
 
 
 def write_timing_file(output_path, timing_info):
@@ -268,17 +374,31 @@ def write_statistics_file(output_path, stats):
                 file_handle.write(f"{key}: {value:.6f}\n")
 
 
+def write_cache_statistics_file(output_path, cache_stats):
+    with open(output_path, "w", encoding="utf-8") as file_handle:
+        file_handle.write(f"Total Evaluations: {cache_stats['total_evaluations']}\n")
+        file_handle.write(f"Real Training Count: {cache_stats['real_training_count']}\n")
+        file_handle.write(f"Cache Hits: {cache_stats['cache_hits']}\n")
+        file_handle.write(f"Cache Misses: {cache_stats['cache_misses']}\n")
+        file_handle.write(f"Saved Training Count: {cache_stats['saved_training_count']}\n")
+        file_handle.write(f"Saved Estimated Time (seconds): {cache_stats['saved_estimated_time']:.6f}\n")
+        file_handle.write(f"Cache Reuse Rate (%): {cache_stats['cache_reuse_rate']:.2f}\n")
+
+
 def write_summary_csv(output_path, rows):
     fieldnames = [
         "run_id",
         "baseline_acc",
         "gwo_acc",
         "improvement",
-        "best_filter_size",
-        "best_filters",
+        "best_kernel_size",
+        "best_base_filters",
         "best_dilation",
         "best_final_neurons",
         "best_dropout",
+        "best_learning_rate",
+        "best_batch_size",
+        "best_se_ratio",
     ]
     with open(output_path, mode="w", newline="", encoding="utf-8") as file_handle:
         writer = csv.DictWriter(file_handle, fieldnames=fieldnames)
@@ -288,13 +408,27 @@ def write_summary_csv(output_path, rows):
 
 
 def write_search_history_aggregate(output_path, runs_results):
-    fieldnames = ["run_id", "iteration", "wolf_id", "filter_size", "filters", "dilation", "final_neurons", "dropout", "fitness"]
-    if len(runs_results) == 1:
-        source_path = os.path.join(runs_results[0]["run_dir"], "search_history.csv")
-        if os.path.abspath(source_path) != os.path.abspath(output_path) and os.path.exists(source_path):
-            shutil.copy2(source_path, output_path)
-        return
-
+    fieldnames = [
+        "run_id",
+        "iteration",
+        "wolf_id",
+        "kernel_size",
+        "base_filters",
+        "dilation",
+        "final_neurons",
+        "dropout",
+        "learning_rate",
+        "batch_size",
+        "se_ratio",
+        "fitness",
+        "evaluation_time",
+        "cache_hit",
+        "combination_key",
+        "iteration_unique_solutions",
+        "iteration_repeat_rate",
+        "iteration_avg_fitness",
+        "iteration_best_fitness",
+    ]
     with open(output_path, mode="w", newline="", encoding="utf-8") as output_file:
         writer = csv.DictWriter(output_file, fieldnames=fieldnames)
         writer.writeheader()
@@ -332,6 +466,24 @@ def compute_timing_aggregate(runs_results, total_experiment_time):
     }
 
 
+def compute_cache_aggregate(runs_results):
+    cache_hits = sum(run["search_result"].get("cache_hits", 0) for run in runs_results)
+    cache_misses = sum(run["search_result"].get("cache_misses", 0) for run in runs_results)
+    saved_training_count = sum(run["search_result"].get("saved_training_count", 0) for run in runs_results)
+    saved_estimated_time = sum(run["search_result"].get("saved_estimated_time", 0.0) for run in runs_results)
+    total_evaluations = cache_hits + cache_misses
+    real_training_count = cache_misses
+    return {
+        "total_evaluations": int(total_evaluations),
+        "real_training_count": int(real_training_count),
+        "cache_hits": int(cache_hits),
+        "cache_misses": int(cache_misses),
+        "saved_training_count": int(saved_training_count),
+        "saved_estimated_time": float(saved_estimated_time),
+        "cache_reuse_rate": (cache_hits / max(total_evaluations, 1)) * 100.0,
+    }
+
+
 def select_best_run(runs_results):
     return max(runs_results, key=lambda run: run["final_result"]["test_accuracy"])
 
@@ -354,11 +506,14 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
                 "baseline_acc": f"{baseline_acc:.6f}",
                 "gwo_acc": f"{gwo_acc:.6f}",
                 "improvement": f"{improvement:.6f}",
-                "best_filter_size": run_result["best_config"]["filter_size"],
-                "best_filters": run_result["best_config"]["filters"],
+                "best_kernel_size": run_result["best_config"]["kernel_size"],
+                "best_base_filters": run_result["best_config"]["base_filters"],
                 "best_dilation": run_result["best_config"]["dilation"],
                 "best_final_neurons": run_result["best_config"]["final_neurons"],
                 "best_dropout": f"{run_result['best_config']['dropout']:.4f}",
+                "best_learning_rate": f"{run_result['best_config']['learning_rate']:.6f}",
+                "best_batch_size": run_result["best_config"]["batch_size"],
+                "best_se_ratio": run_result["best_config"]["se_ratio"],
             }
         )
     write_summary_csv(os.path.join(root_dir, "summary.csv"), summary_rows)
@@ -369,11 +524,17 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
     timing_info = compute_timing_aggregate(runs_results, total_experiment_time)
     write_timing_file(os.path.join(root_dir, "timing.txt"), timing_info)
 
+    cache_stats = compute_cache_aggregate(runs_results)
+    write_cache_statistics_file(os.path.join(root_dir, "cache_statistics.txt"), cache_stats)
+
     convergence_metrics = compute_convergence_metrics(best_run["search_result"]["global_bests"])
+    convergence_metrics["iteration_summaries"] = best_run["search_result"]["iteration_summaries"]
+    convergence_metrics["unique_solutions_evaluated"] = best_run["search_result"].get("unique_solutions_evaluated", 0)
     write_convergence_file(os.path.join(root_dir, "convergence.txt"), convergence_metrics)
 
     confusion_analysis = analyze_confusion_matrix(best_run["final_result"]["confusion_matrix"], CLASS_NAMES)
     write_confusion_analysis_file(os.path.join(root_dir, "confusion_analysis.txt"), confusion_analysis)
+    write_diversity_analysis_file(os.path.join(root_dir, "diversity_analysis.txt"), best_run["search_result"]["iteration_summaries"])
 
     best_config_path = os.path.join(root_dir, "best_config.txt")
     with open(best_config_path, "w", encoding="utf-8") as file_handle:
@@ -381,6 +542,8 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         for key, value in best_run["best_config"].items():
             file_handle.write(f"{key}: {value}\n")
         file_handle.write(f"validation_accuracy: {best_run['search_result']['best_fitness']:.6f}\n")
+        file_handle.write(f"learning_rate: {best_run['best_config']['learning_rate']:.6f}\n")
+        file_handle.write(f"batch_size: {best_run['best_config']['batch_size']}\n")
 
     final_results_path = os.path.join(root_dir, "final_results.txt")
     relative_improvement = ((best_run["final_result"]["test_accuracy"] - best_run["baseline_result"]["test_accuracy"]) / best_run["baseline_result"]["test_accuracy"] * 100.0) if best_run["baseline_result"]["test_accuracy"] > 0 else 0.0
@@ -397,6 +560,9 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         file_handle.write(f"Learning Rate: {base_config.learning_rate}\n")
         file_handle.write(f"Random Seed: {base_config.random_seed}\n")
         file_handle.write(f"Total Fitness Evaluations: {total_fitness_evaluations}\n\n")
+        file_handle.write(f"Cache Hits: {cache_stats['cache_hits']}\n")
+        file_handle.write(f"Cache Misses: {cache_stats['cache_misses']}\n")
+        file_handle.write(f"Cache Reuse Rate (%): {cache_stats['cache_reuse_rate']:.2f}\n\n")
         file_handle.write("Baseline Validation Accuracy: {0:.6f}\n".format(best_run["baseline_result"]["validation_accuracy"]))
         file_handle.write("Baseline Test Accuracy: {0:.6f}\n".format(best_run["baseline_result"]["test_accuracy"]))
         file_handle.write("GWO Validation Accuracy: {0:.6f}\n".format(best_run["search_result"]["best_fitness"]))
@@ -407,6 +573,8 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         for key, value in best_run["best_config"].items():
             file_handle.write(f"  {key}: {value}\n")
         file_handle.write("\n")
+        file_handle.write(f"Best Learning Rate: {best_run['best_config']['learning_rate']:.6f}\n")
+        file_handle.write(f"Best Batch Size: {best_run['best_config']['batch_size']}\n")
         file_handle.write(f"GWO Optimization Time (seconds): {best_run['search_result']['optimization_time']:.2f}\n")
         file_handle.write(f"Baseline Training Time (seconds): {best_run['baseline_result']['training_time']:.2f}\n")
         file_handle.write(f"Final GWO Training Time (seconds): {best_run['final_result']['training_time']:.2f}\n")
@@ -418,6 +586,7 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         "final_results.txt": final_results_path,
         "statistics.txt": os.path.join(root_dir, "statistics.txt"),
         "timing.txt": os.path.join(root_dir, "timing.txt"),
+        "cache_statistics.txt": os.path.join(root_dir, "cache_statistics.txt"),
         "convergence.txt": os.path.join(root_dir, "convergence.txt"),
         "confusion_analysis.txt": os.path.join(root_dir, "confusion_analysis.txt"),
         "summary.csv": os.path.join(root_dir, "summary.csv"),
@@ -481,11 +650,12 @@ def build_final_training_bundle(bundle: DataBundle, batch_size, seed, num_worker
 
 def run_baseline_experiment(bundle, config, device, logger, run_dir):
     baseline_config = {
-        "filter_size": 3,
-        "filters": 32,
+        "kernel_size": 3,
+        "base_filters": 32,
         "dilation": 1,
-        "final_neurons": 128,
+        "final_neurons": 256,
         "dropout": 0.25,
+        "se_ratio": 8,
     }
     model = build_model(baseline_config, bundle.in_channels, bundle.img_size, bundle.num_classes).to(device)
     checkpoint_path = os.path.join(run_dir, "baseline_best.pth")
@@ -509,6 +679,8 @@ def run_baseline_experiment(bundle, config, device, logger, run_dir):
         "test_loss": baseline_test_metrics["loss"],
         "training_time": baseline_training_time,
         "checkpoint_path": checkpoint_path,
+        "batch_size": config.batch_size,
+        "learning_rate": config.learning_rate,
     }
 
 
@@ -519,40 +691,82 @@ def run_gwo_search(bundle, config, device, logger, run_dir):
 
     bounds = build_bounds(config)
     search_start = time.perf_counter()
+    fitness_cache = {}
+    cache_hits = 0
+    cache_misses = 0
+    saved_estimated_time = 0.0
 
     def fitness(position, iteration=None, wolf_id=None):
+        nonlocal cache_hits, cache_misses, saved_estimated_time
         model_config = map_position_to_config(position, config)
-        model = build_model(model_config, bundle.in_channels, bundle.img_size, bundle.num_classes).to(device)
-        _, history, val_accuracy, _, _ = train_model(
-            model,
-            bundle.train_loader,
-            bundle.val_loader,
-            device,
-            learning_rate=config.learning_rate,
-            epochs=config.search_epochs,
-            patience=config.patience,
-            logger=logger,
-        )
-        append_search_history(search_history_path, iteration, wolf_id, model_config, val_accuracy)
+        solution_key = solution_cache_key(model_config)
+
+        if solution_key in fitness_cache:
+            cached_entry = fitness_cache[solution_key]
+            val_accuracy = cached_entry["fitness"]
+            evaluation_time = 0.0
+            cache_hit = True
+            cache_hits += 1
+            saved_estimated_time += cached_entry["evaluation_time"]
+        else:
+            eval_seed = config.random_seed + (iteration or 0) * 100 + (wolf_id or 0)
+            train_loader, val_loader = build_candidate_loaders(bundle, model_config["batch_size"], eval_seed, config.num_workers)
+            model = build_model(model_config, bundle.in_channels, bundle.img_size, bundle.num_classes).to(device)
+            eval_start = time.perf_counter()
+            _, history, val_accuracy, _, _ = train_model(
+                model,
+                train_loader,
+                val_loader,
+                device,
+                learning_rate=model_config["learning_rate"],
+                epochs=config.search_epochs,
+                patience=config.patience,
+                logger=logger,
+            )
+            evaluation_time = time.perf_counter() - eval_start
+            fitness_cache[solution_key] = {
+                "fitness": val_accuracy,
+                "evaluation_time": evaluation_time,
+            }
+            cache_hit = False
+            cache_misses += 1
+
+        append_search_history(search_history_path, iteration, wolf_id, model_config, val_accuracy, evaluation_time, cache_hit)
         logger.info(
-            "gwo_iteration=%s wolf_id=%s val_acc=%.6f config=%s",
+            "gwo_iteration=%s wolf_id=%s val_acc=%.6f cache_hit=%s config=%s",
             iteration,
             wolf_id,
             val_accuracy,
+            cache_hit,
             model_config,
         )
         return val_accuracy
 
-    gwo = GreyWolfOptimizer(fitness, bounds, population=config.population_size, iterations=config.iteration_count)
+    gwo = GreyWolfOptimizer(
+        fitness,
+        bounds,
+        population=config.population_size,
+        iterations=config.iteration_count,
+        solution_signature_func=lambda position: position_signature(position, config),
+    )
     result = gwo.optimize()
+    augment_search_history_with_diversity(search_history_path, result["iteration_summaries"])
     search_time = time.perf_counter() - search_start
     result["optimization_time"] = search_time
     result["search_history_path"] = search_history_path
+    result["cache_hits"] = cache_hits
+    result["cache_misses"] = cache_misses
+    result["cache_reuse_rate"] = (cache_hits / max(cache_hits + cache_misses, 1)) * 100.0
+    result["unique_solutions_evaluated"] = len(fitness_cache)
+    result["real_training_count"] = cache_misses
+    result["saved_training_count"] = cache_hits
+    result["saved_estimated_time"] = saved_estimated_time
+    result["fitness_cache"] = fitness_cache
     return result
 
 
 def run_final_gwo_experiment(bundle, config, best_config, device, logger, run_dir):
-    final_train_loader, monitor_loader = build_final_training_bundle(bundle, config.batch_size, config.random_seed, config.num_workers)
+    final_train_loader, monitor_loader = build_final_training_bundle(bundle, best_config["batch_size"], config.random_seed, config.num_workers)
     model = build_model(best_config, bundle.in_channels, bundle.img_size, bundle.num_classes).to(device)
     best_model_path = os.path.join(run_dir, "best_model.pth")
     model, history, best_monitor_accuracy, _, training_time = train_model(
@@ -560,7 +774,7 @@ def run_final_gwo_experiment(bundle, config, best_config, device, logger, run_di
         final_train_loader,
         monitor_loader,
         device,
-        learning_rate=config.learning_rate,
+        learning_rate=best_config["learning_rate"],
         epochs=config.final_epochs,
         patience=config.patience,
         logger=logger,

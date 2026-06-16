@@ -20,10 +20,30 @@ class DataBundle:
     num_classes: int
 
 
+def build_data_loader(dataset_subset, batch_size: int, seed: int, num_workers: int, shuffle: bool):
+    generator = torch.Generator().manual_seed(seed)
+    worker_seed = seed_worker_factory(seed)
+    return DataLoader(
+        dataset_subset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        generator=generator,
+        worker_init_fn=worker_seed,
+    )
+
+
 def _build_dataset(dataset: str, data_dir: str):
     dataset_key = dataset.lower()
 
-    if dataset_key in ("fashionmnist", "fashion-mnist"):
+    if dataset_key == "cifar10":
+        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
+        train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform)
+        test_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=transform)
+        in_channels = 3
+        img_size = 32
+        num_classes = 10
+    elif dataset_key in ("fashionmnist", "fashion-mnist"):
         transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.2860,), (0.3530,))])
         train_dataset = datasets.FashionMNIST(root=data_dir, train=True, download=True, transform=transform)
         test_dataset = datasets.FashionMNIST(root=data_dir, train=False, download=True, transform=transform)
@@ -36,13 +56,6 @@ def _build_dataset(dataset: str, data_dir: str):
         test_dataset = datasets.MNIST(root=data_dir, train=False, download=True, transform=transform)
         in_channels = 1
         img_size = 28
-        num_classes = 10
-    elif dataset_key == "cifar10":
-        transform = transforms.Compose([transforms.ToTensor(), transforms.Normalize((0.4914, 0.4822, 0.4465), (0.247, 0.243, 0.261))])
-        train_dataset = datasets.CIFAR10(root=data_dir, train=True, download=True, transform=transform)
-        test_dataset = datasets.CIFAR10(root=data_dir, train=False, download=True, transform=transform)
-        in_channels = 3
-        img_size = 32
         num_classes = 10
     else:
         raise ValueError(f"Unsupported dataset: {dataset}")
@@ -72,29 +85,9 @@ def build_data_bundle(
         subset_generator = torch.Generator().manual_seed(seed + 1)
         train_subset, _ = random_split(train_subset, [subset_size, len(train_subset) - subset_size], generator=subset_generator)
 
-    loader_generator = torch.Generator().manual_seed(seed)
-    seed_worker = seed_worker_factory(seed)
-
-    train_loader = DataLoader(
-        train_subset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        generator=loader_generator,
-        worker_init_fn=seed_worker,
-    )
-    val_loader = DataLoader(
-        val_subset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-    )
+    train_loader = build_data_loader(train_subset, batch_size, seed, num_workers, shuffle=True)
+    val_loader = build_data_loader(val_subset, batch_size, seed + 10, num_workers, shuffle=False)
+    test_loader = build_data_loader(test_dataset, batch_size, seed + 20, num_workers, shuffle=False)
 
     return DataBundle(
         train_dataset=train_subset,

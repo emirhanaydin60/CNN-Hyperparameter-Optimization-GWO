@@ -5,9 +5,9 @@ import json
 
 @dataclass
 class ExperimentConfig:
-    dataset: str = "fashionmnist"
-    population_size: int = 6
-    iteration_count: int = 10
+    dataset: str = "cifar10"
+    population_size: int = 8
+    iteration_count: int = 15
     search_epochs: int = 6
     final_epochs: int = 20
     batch_size: int = 128
@@ -17,19 +17,23 @@ class ExperimentConfig:
     patience: int = 5
     runs: int = 1
     monitor_ratio: float = 0.1
-    train_size: int = 55000
+    train_size: int = 45000
     val_size: int = 5000
     num_workers: int = 0
     results_dir: str = "results"
     data_dir: str = "data"
     search_space: dict = field(
         default_factory=lambda: {
-            "filter_sizes": [3, 5, 7],
-            "filter_counts": [8, 16, 32, 64],
+            "kernel_sizes": [3, 5, 7],
+            "base_filters": [16, 32, 64, 128, 256],
             "dilations": [1, 2, 3],
-            "final_neurons": [64, 128, 256, 512],
-            "dropout_min": 0.0,
-            "dropout_max": 0.5,
+            "final_neurons": [128, 256, 512],
+            "se_ratios": [4, 8, 16],
+            "batch_sizes": [32, 64, 128],
+            "learning_rate_min": 0.0001,
+            "learning_rate_max": 0.01,
+            "dropout_min": 0.10,
+            "dropout_max": 0.7,
         }
     )
 
