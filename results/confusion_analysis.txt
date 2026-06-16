@@ -1,0 +1,8 @@
+Top 5 Confused Class Pairs:
+Shirt -> T-shirt/top: 96
+T-shirt/top -> Shirt: 92
+Shirt -> Coat: 65
+Shirt -> Pullover: 52
+Coat -> Pullover: 48
+Best Accuracy Class: Sandal (0.985000)
+Worst Accuracy Class: Shirt (0.765000)

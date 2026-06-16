@@ -1,0 +1,2 @@
+run_id,baseline_acc,gwo_acc,improvement,best_filter_size,best_filters,best_dilation,best_final_neurons,best_dropout
+1,0.923500,0.922500,-0.100000,5,64,1,128,0.0149

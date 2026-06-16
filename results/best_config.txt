@@ -1,0 +1,7 @@
+Best Hyperparameters:
+filter_size: 5
+filters: 64
+dilation: 1
+final_neurons: 128
+dropout: 0.014898609719035172
+validation_accuracy: 0.924600

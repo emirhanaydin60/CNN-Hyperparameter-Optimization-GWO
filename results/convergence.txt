@@ -1,0 +1,4 @@
+first_iter_fitness: 0.924600
+last_iter_fitness: 0.924600
+fitness_increase: 0.000000
+convergence_percent: 0.00
