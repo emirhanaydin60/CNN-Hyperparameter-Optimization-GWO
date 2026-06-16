@@ -24,7 +24,8 @@ class ExperimentConfig:
     data_dir: str = "data"
     search_space: dict = field(
         default_factory=lambda: {
-            "kernel_sizes": [3, 5, 7],
+            # Shared convolution path only: stem + residual blocks.
+            "shared_conv_kernel_sizes": [3, 5, 7],
             "base_filters": [16, 32, 64, 128, 256],
             "dilations": [1, 2, 3],
             "final_neurons": [128, 256, 512],

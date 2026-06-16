@@ -28,7 +28,7 @@ Kullanılan model sabit bir HybridCNN’dir:
 
 GWO tarafından optimize edilen hiperparametreler:
 
-- `kernel_size`
+- `shared_conv_kernel_size`
 - `base_filters`
 - `dilation`
 - `final_neurons`

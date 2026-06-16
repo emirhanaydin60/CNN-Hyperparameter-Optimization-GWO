@@ -38,7 +38,7 @@ def build_model(model_config, in_channels, img_size, num_classes):
     return HybridCNN(
         in_channels=in_channels,
         img_size=img_size,
-        kernel_size=model_config["kernel_size"],
+        shared_conv_kernel_size=model_config["shared_conv_kernel_size"],
         base_filters=model_config["base_filters"],
         dilation=model_config["dilation"],
         final_neurons=model_config["final_neurons"],
@@ -50,7 +50,7 @@ def build_model(model_config, in_channels, img_size, num_classes):
 
 def map_position_to_config(position, config):
     search_space = config.search_space
-    kernel_sizes = search_space["kernel_sizes"]
+    kernel_sizes = search_space["shared_conv_kernel_sizes"]
     base_filters = search_space["base_filters"]
     dilations = search_space["dilations"]
     final_neurons = search_space["final_neurons"]
@@ -81,7 +81,7 @@ def map_position_to_config(position, config):
     learning_rate = float(10**learning_rate_log)
 
     return {
-        "kernel_size": kernel_sizes[kernel_idx],
+        "shared_conv_kernel_size": kernel_sizes[kernel_idx],
         "base_filters": base_filters[base_idx],
         "dilation": dilations[dilation_idx],
         "final_neurons": final_neurons[final_idx],
@@ -95,7 +95,7 @@ def map_position_to_config(position, config):
 def build_bounds(config):
     search_space = config.search_space
     return [
-        (0, len(search_space["kernel_sizes"]) - 1),
+        (0, len(search_space["shared_conv_kernel_sizes"]) - 1),
         (0, len(search_space["base_filters"]) - 1),
         (0, len(search_space["dilations"]) - 1),
         (0, len(search_space["final_neurons"]) - 1),
@@ -109,7 +109,7 @@ def build_bounds(config):
 def position_signature(position, config):
     model_config = map_position_to_config(position, config)
     return (
-        model_config["kernel_size"],
+        model_config["shared_conv_kernel_size"],
         model_config["base_filters"],
         model_config["dilation"],
         model_config["final_neurons"],
@@ -122,7 +122,7 @@ def position_signature(position, config):
 
 def solution_cache_key(model_config):
     return (
-        model_config["kernel_size"],
+        model_config["shared_conv_kernel_size"],
         model_config["base_filters"],
         model_config["dilation"],
         model_config["final_neurons"],
@@ -214,12 +214,12 @@ def append_search_history(csv_path, iteration, wolf_id, model_config, fitness, e
     with open(csv_path, mode="a", newline="", encoding="utf-8") as file_handle:
         writer = csv.writer(file_handle)
         if not file_exists:
-            writer.writerow(["iteration", "wolf_id", "kernel_size", "base_filters", "dilation", "final_neurons", "dropout", "learning_rate", "batch_size", "se_ratio", "fitness", "evaluation_time", "cache_hit"])
+            writer.writerow(["iteration", "wolf_id", "shared_conv_kernel_size", "base_filters", "dilation", "final_neurons", "dropout", "learning_rate", "batch_size", "se_ratio", "fitness", "cache_hit", "evaluation_time"])
         writer.writerow(
             [
                 iteration,
                 wolf_id,
-                model_config["kernel_size"],
+                model_config["shared_conv_kernel_size"],
                 model_config["base_filters"],
                 model_config["dilation"],
                 model_config["final_neurons"],
@@ -228,8 +228,8 @@ def append_search_history(csv_path, iteration, wolf_id, model_config, fitness, e
                 model_config["batch_size"],
                 model_config["se_ratio"],
                 f"{fitness:.6f}",
-                f"{evaluation_time:.6f}",
                 cache_hit,
+                f"{evaluation_time:.6f}",
             ]
         )
 
@@ -237,7 +237,7 @@ def append_search_history(csv_path, iteration, wolf_id, model_config, fitness, e
 def write_search_space_file(config, output_path):
     search_space = config.search_space
     payload = {
-        "KERNEL_SIZES": search_space["kernel_sizes"],
+        "shared_conv_kernel_size": search_space["shared_conv_kernel_sizes"],
         "BASE_FILTERS": search_space["base_filters"],
         "DILATIONS": search_space["dilations"],
         "FINAL_NEURONS": search_space["final_neurons"],
@@ -263,7 +263,7 @@ def augment_search_history_with_diversity(csv_path, iteration_summaries):
     for row in rows:
         iteration = int(row["iteration"])
         summary = summary_by_iteration.get(iteration, {})
-        row["combination_key"] = f"ks={row['kernel_size']};bf={row['base_filters']};d={row['dilation']};fn={row['final_neurons']};dr={row['dropout']};lr={row.get('learning_rate', '')};bs={row.get('batch_size', '')};se={row.get('se_ratio', '')}"
+        row["combination_key"] = f"shared_conv_kernel_size={row['shared_conv_kernel_size']};bf={row['base_filters']};d={row['dilation']};fn={row['final_neurons']};dr={row['dropout']};lr={row.get('learning_rate', '')};bs={row.get('batch_size', '')};se={row.get('se_ratio', '')}"
         row["iteration_unique_solutions"] = summary.get("unique_solution_count", "")
         row["iteration_repeat_rate"] = f"{summary.get('repeat_rate', 0.0):.6f}" if summary else ""
         row["iteration_avg_fitness"] = f"{summary.get('average_fitness', 0.0):.6f}" if summary else ""
@@ -391,7 +391,7 @@ def write_summary_csv(output_path, rows):
         "baseline_acc",
         "gwo_acc",
         "improvement",
-        "best_kernel_size",
+        "best_shared_conv_kernel_size",
         "best_base_filters",
         "best_dilation",
         "best_final_neurons",
@@ -412,7 +412,7 @@ def write_search_history_aggregate(output_path, runs_results):
         "run_id",
         "iteration",
         "wolf_id",
-        "kernel_size",
+        "shared_conv_kernel_size",
         "base_filters",
         "dilation",
         "final_neurons",
@@ -421,8 +421,8 @@ def write_search_history_aggregate(output_path, runs_results):
         "batch_size",
         "se_ratio",
         "fitness",
-        "evaluation_time",
         "cache_hit",
+        "evaluation_time",
         "combination_key",
         "iteration_unique_solutions",
         "iteration_repeat_rate",
@@ -499,14 +499,14 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
     for run_index, run_result in enumerate(runs_results, start=1):
         baseline_acc = run_result["baseline_result"]["test_accuracy"]
         gwo_acc = run_result["final_result"]["test_accuracy"]
-        improvement = run_result["improvement"]
+        improvement_points = run_result["accuracy_improvement_points"]
         summary_rows.append(
             {
                 "run_id": run_index,
                 "baseline_acc": f"{baseline_acc:.6f}",
                 "gwo_acc": f"{gwo_acc:.6f}",
-                "improvement": f"{improvement:.6f}",
-                "best_kernel_size": run_result["best_config"]["kernel_size"],
+                "improvement": f"{improvement_points:.6f}",
+                "best_shared_conv_kernel_size": run_result["best_config"]["shared_conv_kernel_size"],
                 "best_base_filters": run_result["best_config"]["base_filters"],
                 "best_dilation": run_result["best_config"]["dilation"],
                 "best_final_neurons": run_result["best_config"]["final_neurons"],
@@ -546,9 +546,10 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         file_handle.write(f"batch_size: {best_run['best_config']['batch_size']}\n")
 
     final_results_path = os.path.join(root_dir, "final_results.txt")
+    accuracy_improvement_points = (best_run["final_result"]["test_accuracy"] - best_run["baseline_result"]["test_accuracy"]) * 100.0
     relative_improvement = ((best_run["final_result"]["test_accuracy"] - best_run["baseline_result"]["test_accuracy"]) / best_run["baseline_result"]["test_accuracy"] * 100.0) if best_run["baseline_result"]["test_accuracy"] > 0 else 0.0
-    accuracy_improvement = best_run["final_result"]["test_accuracy"] - best_run["baseline_result"]["test_accuracy"]
     total_fitness_evaluations = sum(run["search_result"]["evaluation_count"] for run in runs_results)
+    total_training_time = sum(run["baseline_result"]["training_time"] + run["final_result"]["training_time"] + run["search_result"]["optimization_time"] for run in runs_results)
 
     with open(final_results_path, "w", encoding="utf-8") as file_handle:
         file_handle.write(f"Population Size: {base_config.population_size}\n")
@@ -559,25 +560,21 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
         file_handle.write(f"Batch Size: {base_config.batch_size}\n")
         file_handle.write(f"Learning Rate: {base_config.learning_rate}\n")
         file_handle.write(f"Random Seed: {base_config.random_seed}\n")
-        file_handle.write(f"Total Fitness Evaluations: {total_fitness_evaluations}\n\n")
+        file_handle.write(f"Total Evaluations: {total_fitness_evaluations}\n\n")
+        file_handle.write(f"Unique Solutions: {best_run['search_result'].get('unique_solutions_evaluated', 0)}\n")
         file_handle.write(f"Cache Hits: {cache_stats['cache_hits']}\n")
         file_handle.write(f"Cache Misses: {cache_stats['cache_misses']}\n")
         file_handle.write(f"Cache Reuse Rate (%): {cache_stats['cache_reuse_rate']:.2f}\n\n")
-        file_handle.write("Baseline Validation Accuracy: {0:.6f}\n".format(best_run["baseline_result"]["validation_accuracy"]))
         file_handle.write("Baseline Test Accuracy: {0:.6f}\n".format(best_run["baseline_result"]["test_accuracy"]))
-        file_handle.write("GWO Validation Accuracy: {0:.6f}\n".format(best_run["search_result"]["best_fitness"]))
         file_handle.write("GWO Test Accuracy: {0:.6f}\n".format(best_run["final_result"]["test_accuracy"]))
-        file_handle.write(f"Accuracy Improvement (% points): {accuracy_improvement:.6f}\n")
+        file_handle.write(f"Accuracy Improvement (percentage points): {accuracy_improvement_points:.2f}\n")
         file_handle.write(f"Relative Improvement (%): {relative_improvement:.6f}\n\n")
         file_handle.write("Best Hyperparameters:\n")
         for key, value in best_run["best_config"].items():
             file_handle.write(f"  {key}: {value}\n")
         file_handle.write("\n")
-        file_handle.write(f"Best Learning Rate: {best_run['best_config']['learning_rate']:.6f}\n")
-        file_handle.write(f"Best Batch Size: {best_run['best_config']['batch_size']}\n")
-        file_handle.write(f"GWO Optimization Time (seconds): {best_run['search_result']['optimization_time']:.2f}\n")
-        file_handle.write(f"Baseline Training Time (seconds): {best_run['baseline_result']['training_time']:.2f}\n")
-        file_handle.write(f"Final GWO Training Time (seconds): {best_run['final_result']['training_time']:.2f}\n")
+        file_handle.write(f"Total Optimization Time (seconds): {best_run['search_result']['optimization_time']:.2f}\n")
+        file_handle.write(f"Total Training Time (seconds): {total_training_time:.2f}\n")
         file_handle.write(f"Total Experiment Time (seconds): {total_experiment_time:.2f}\n")
 
     artifact_map = {
@@ -650,7 +647,7 @@ def build_final_training_bundle(bundle: DataBundle, batch_size, seed, num_worker
 
 def run_baseline_experiment(bundle, config, device, logger, run_dir):
     baseline_config = {
-        "kernel_size": 3,
+        "shared_conv_kernel_size": 3,
         "base_filters": 32,
         "dilation": 1,
         "final_neurons": 256,
@@ -813,22 +810,26 @@ def save_run_summary(run_dir, best_config, search_result, baseline_result, final
     plot_confusion_matrix(confusion_matrix, CLASS_NAMES, os.path.join(run_dir, "confusion_matrix.png"))
 
     summary_path = os.path.join(run_dir, "final_results.txt")
-    improvement = ((final_result["test_accuracy"] - baseline_result["test_accuracy"]) / baseline_result["test_accuracy"] * 100.0) if baseline_result["test_accuracy"] > 0 else 0.0
+    improvement_points = (final_result["test_accuracy"] - baseline_result["test_accuracy"]) * 100.0
+    total_training_time = baseline_result["training_time"] + final_result["training_time"] + search_result["optimization_time"]
 
     with open(summary_path, "w", encoding="utf-8") as file_handle:
         file_handle.write(f"population size: {config.population_size}\n")
         file_handle.write(f"iteration count: {config.iteration_count}\n")
-        file_handle.write(f"total fitness evaluations: {search_result['evaluation_count']}\n")
         file_handle.write("best hyperparameters:\n")
         for key, value in best_config.items():
             file_handle.write(f"  {key}: {value}\n")
-        file_handle.write(f"best validation accuracy: {search_result['best_fitness']:.6f}\n")
-        file_handle.write(f"baseline validation accuracy: {baseline_result['validation_accuracy']:.6f}\n")
         file_handle.write(f"baseline test accuracy: {baseline_result['test_accuracy']:.6f}\n")
         file_handle.write(f"GWO test accuracy: {final_result['test_accuracy']:.6f}\n")
-        file_handle.write(f"accuracy improvement (%): {improvement:.2f}\n")
-        file_handle.write(f"training time (seconds): {final_result['training_time']:.2f}\n")
-        file_handle.write(f"optimization time (seconds): {search_result['optimization_time']:.2f}\n")
+        file_handle.write(f"accuracy improvement (percentage points): {improvement_points:.2f}\n")
+        file_handle.write(f"relative improvement (%): {((final_result['test_accuracy'] - baseline_result['test_accuracy']) / baseline_result['test_accuracy'] * 100.0) if baseline_result['test_accuracy'] > 0 else 0.0:.2f}\n")
+        file_handle.write(f"total evaluations: {search_result['evaluation_count']}\n")
+        file_handle.write(f"unique solutions: {search_result.get('unique_solutions_evaluated', 0)}\n")
+        file_handle.write(f"cache hits: {search_result.get('cache_hits', 0)}\n")
+        file_handle.write(f"cache misses: {search_result.get('cache_misses', 0)}\n")
+        file_handle.write(f"cache reuse rate (%): {search_result.get('cache_reuse_rate', 0.0):.2f}\n")
+        file_handle.write(f"total optimization time (seconds): {search_result['optimization_time']:.2f}\n")
+        file_handle.write(f"total training time (seconds): {total_training_time:.2f}\n")
 
     return {
         "best_config_path": best_config_path,

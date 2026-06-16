@@ -108,7 +108,7 @@ class HybridCNN(nn.Module):
         self,
         in_channels=3,
         img_size=32,
-        kernel_size=3,
+        shared_conv_kernel_size=3,
         base_filters=32,
         dilation=1,
         final_neurons=256,
@@ -117,10 +117,11 @@ class HybridCNN(nn.Module):
         num_classes=10,
     ):
         super().__init__()
-        self.stem = ConvBNReLU(in_channels, base_filters, kernel_size=kernel_size, dilation=dilation)
-        self.residual1 = ResidualBlock(base_filters, kernel_size=kernel_size, dilation=dilation)
+        # This kernel size applies only to the shared convolution path, not the Inception-lite branches.
+        self.stem = ConvBNReLU(in_channels, base_filters, kernel_size=shared_conv_kernel_size, dilation=dilation)
+        self.residual1 = ResidualBlock(base_filters, kernel_size=shared_conv_kernel_size, dilation=dilation)
         self.inception = InceptionLiteBlock(base_filters, base_filters, dilation=dilation)
-        self.residual2 = ResidualBlock(base_filters, kernel_size=kernel_size, dilation=dilation)
+        self.residual2 = ResidualBlock(base_filters, kernel_size=shared_conv_kernel_size, dilation=dilation)
         self.se = SEBlock(base_filters, reduction_ratio=se_ratio)
         self.pool = nn.AdaptiveAvgPool2d(1)
         self.classifier = nn.Sequential(
