@@ -10,7 +10,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import ConcatDataset, DataLoader, random_split
+from typing import cast
+from torch.utils.data import ConcatDataset, DataLoader, Dataset, random_split
 
 from config import config_to_dict, load_config, save_config
 from data_loader import DataBundle, build_data_bundle, build_data_loader
@@ -21,16 +22,16 @@ from plotting import plot_confusion_matrix, plot_curves, plot_global, plot_local
 from utils import ensure_dir, make_torch_generator, set_global_seed, setup_logging, write_json
 
 CLASS_NAMES = [
-    "T-shirt/top",
-    "Trouser",
-    "Pullover",
-    "Dress",
-    "Coat",
-    "Sandal",
-    "Shirt",
-    "Sneaker",
-    "Bag",
-    "Ankle boot",
+    "airplane",
+    "automobile",
+    "bird",
+    "cat",
+    "deer",
+    "dog",
+    "frog",
+    "horse",
+    "ship",
+    "truck",
 ]
 
 
@@ -625,7 +626,7 @@ def build_root_artifacts(base_config, runs_results, total_experiment_time):
 
 
 def build_final_training_bundle(bundle: DataBundle, batch_size, seed, num_workers):
-    combined_dataset = ConcatDataset([bundle.train_dataset, bundle.val_dataset])
+    combined_dataset = ConcatDataset([cast(Dataset, bundle.train_dataset), cast(Dataset, bundle.val_dataset)])
     monitor_size = max(1, int(len(combined_dataset) * 0.1))
     train_size = len(combined_dataset) - monitor_size
     split_generator = make_torch_generator(seed + 101)
@@ -820,7 +821,8 @@ def save_run_summary(run_dir, best_config, search_result, baseline_result, final
 
     plot_global(search_result["global_bests"], os.path.join(run_dir, "global_best.png"))
     plot_locals(search_result["local_bests"], os.path.join(run_dir, "local_bests.png"))
-    plot_curves(final_result["history"], os.path.join(run_dir, "accuracy_curve.png"), os.path.join(run_dir, "loss_curve.png"))
+    training_curves_path = os.path.join(run_dir, "training_curves.png")
+    plot_curves(final_result["history"], training_curves_path)
 
     confusion_matrix = build_confusion_matrix(final_result["test_metrics"]["targets"], final_result["test_metrics"]["predictions"], len(CLASS_NAMES))
     plot_confusion_matrix(confusion_matrix, CLASS_NAMES, os.path.join(run_dir, "confusion_matrix.png"))
@@ -850,8 +852,7 @@ def save_run_summary(run_dir, best_config, search_result, baseline_result, final
     return {
         "best_config_path": best_config_path,
         "summary_path": summary_path,
-        "accuracy_curve_path": os.path.join(run_dir, "accuracy_curve.png"),
-        "loss_curve_path": os.path.join(run_dir, "loss_curve.png"),
+        "training_curves_path": training_curves_path,
         "global_best_path": os.path.join(run_dir, "global_best.png"),
         "local_bests_path": os.path.join(run_dir, "local_bests.png"),
         "confusion_matrix_path": os.path.join(run_dir, "confusion_matrix.png"),
@@ -908,7 +909,7 @@ def execute_single_run(base_config, run_index, logger):
 
 
 def copy_artifacts_to_root(run_artifacts, results_dir):
-    for key in ["best_config_path", "summary_path", "accuracy_curve_path", "loss_curve_path", "global_best_path", "local_bests_path", "confusion_matrix_path"]:
+    for key in ["best_config_path", "summary_path", "training_curves_path", "global_best_path", "local_bests_path", "confusion_matrix_path"]:
         source = run_artifacts[key]
         target_name = os.path.basename(source)
         target = os.path.join(results_dir, target_name)

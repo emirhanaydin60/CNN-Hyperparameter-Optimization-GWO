@@ -42,34 +42,30 @@ def plot_locals(local_bests, out_path):
     plt.close()
 
 
-def plot_curves(history, out_path_accuracy, out_path_loss):
-    _ensure_parent_dir(out_path_accuracy)
-    _ensure_parent_dir(out_path_loss)
+def plot_curves(history, out_path):
+    _ensure_parent_dir(out_path)
     epochs = range(1, len(history["train_accuracy"]) + 1)
 
-    plt.figure(figsize=(8, 4))
-    plt.plot(epochs, history["train_accuracy"], label="Training Accuracy")
-    plt.plot(epochs, history["val_accuracy"], label="Validation Accuracy")
-    plt.title("Accuracy Curve")
-    plt.xlabel("Epoch")
-    plt.ylabel("Accuracy")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(out_path_accuracy)
-    plt.close()
+    figure, axes = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
 
-    plt.figure(figsize=(8, 4))
-    plt.plot(epochs, history["train_loss"], label="Training Loss")
-    plt.plot(epochs, history["val_loss"], label="Validation Loss")
-    plt.title("Loss Curve")
-    plt.xlabel("Epoch")
-    plt.ylabel("Loss")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.savefig(out_path_loss)
-    plt.close()
+    axes[0].plot(epochs, history["train_accuracy"], label="Training Accuracy")
+    axes[0].plot(epochs, history["val_accuracy"], label="Validation Accuracy")
+    axes[0].set_title("Accuracy Curve")
+    axes[0].set_ylabel("Accuracy")
+    axes[0].legend()
+    axes[0].grid(True)
+
+    axes[1].plot(epochs, history["train_loss"], label="Training Loss")
+    axes[1].plot(epochs, history["val_loss"], label="Validation Loss")
+    axes[1].set_title("Loss Curve")
+    axes[1].set_xlabel("Epoch")
+    axes[1].set_ylabel("Loss")
+    axes[1].legend()
+    axes[1].grid(True)
+
+    figure.tight_layout()
+    figure.savefig(out_path)
+    plt.close(figure)
 
 
 def plot_confusion_matrix(confusion_matrix, class_names, out_path):

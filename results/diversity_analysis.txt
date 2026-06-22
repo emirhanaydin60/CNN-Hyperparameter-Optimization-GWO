@@ -1,0 +1,1 @@
+iteration,unique_solution_count,repeat_rate,average_fitness,best_fitness

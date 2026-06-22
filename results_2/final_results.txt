@@ -1,0 +1,22 @@
+population size: 8
+iteration count: 15
+best hyperparameters:
+  shared_conv_kernel_size: 3
+  base_filters: 256
+  dilation: 2
+  final_neurons: 128
+  dropout: 0.27808240863756223
+  learning_rate: 0.0010951094975080505
+  batch_size: 32
+  se_ratio: 8
+baseline test accuracy: 0.794600
+GWO test accuracy: 0.855700
+accuracy improvement (percentage points): 6.11
+relative improvement (%): 7.69
+total evaluations: 128
+unique solutions: 121
+cache hits: 7
+cache misses: 121
+cache reuse rate (%): 5.47
+total optimization time (seconds): 78511.92
+total training time (seconds): 85588.50
