@@ -74,11 +74,26 @@ def plot_confusion_matrix(confusion_matrix, class_names, out_path):
 
     plt.figure(figsize=(9, 7))
     plt.imshow(normalized_matrix, interpolation="nearest", cmap="Blues")
-    plt.title("Normalized Confusion Matrix")
+    plt.title("Confusion Matrix")
     plt.colorbar()
+
     ticks = np.arange(len(class_names))
     plt.xticks(ticks, class_names, rotation=45, ha="right")
     plt.yticks(ticks, class_names)
+
+    # Hücrelere değer yaz
+    for i in range(confusion_matrix.shape[0]):
+        for j in range(confusion_matrix.shape[1]):
+
+            value = confusion_matrix[i, j]
+            ratio = normalized_matrix[i, j] * 100
+
+            color = "white" if normalized_matrix[i, j] > 0.5 else "black"
+
+            plt.text(j, i - 0.12, f"{value}", ha="center", va="center", color=color, fontsize=8, fontweight="bold")
+
+            plt.text(j, i + 0.18, f"{ratio:.1f}%", ha="center", va="center", color=color, fontsize=6, fontweight="bold")
+
     plt.ylabel("True label")
     plt.xlabel("Predicted label")
     plt.tight_layout()

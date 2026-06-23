@@ -1,4 +1,0 @@
-GWO Optimization Time: mean=5543.60, std=0.00
-Baseline Training Time: mean=218.69, std=0.00
-Final GWO Training Time: mean=215.49, std=0.00
-Total Experiment Time: 5985.57
