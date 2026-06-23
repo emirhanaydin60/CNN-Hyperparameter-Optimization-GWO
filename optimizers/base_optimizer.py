@@ -42,6 +42,7 @@ class BaseOptimizer:
     def _summarize_iteration(self, iteration, fitness, positions, pbest_fit, iteration_start):
         current_signatures = [self._signature(position) for position in positions]
         diversity = float(np.mean(np.std(np.asarray(positions, dtype=float), axis=0))) if len(positions) > 1 else 0.0
+        population_fitness_std = float(np.std(np.asarray(fitness, dtype=float), ddof=0)) if len(fitness) else 0.0
         best_fitness = float(np.max(fitness)) if len(fitness) else 0.0
         worst_fitness = float(np.min(fitness)) if len(fitness) else 0.0
         global_best = float(np.max(pbest_fit)) if len(pbest_fit) else 0.0
@@ -51,6 +52,7 @@ class BaseOptimizer:
             "unique_solution_count": len(set(current_signatures)),
             "repeat_rate": 1.0 - (len(set(current_signatures)) / max(len(current_signatures), 1)),
             "average_fitness": float(np.mean(fitness)) if len(fitness) else 0.0,
+            "std_population_fitness": population_fitness_std,
             "best_fitness": best_fitness,
             "worst_fitness": worst_fitness,
             "population_diversity": diversity,

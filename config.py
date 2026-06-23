@@ -2,7 +2,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 import json
 
-
 OPTIMIZERS = ["gwo", "pso", "woa", "rao"]
 
 
@@ -22,7 +21,7 @@ class ExperimentConfig:
     patience: int = 10
     lr_reduce_factor: float = 0.5
     lr_reduce_patience: int = 4
-    runs: int = 1
+    runs: int = 3
     monitor_ratio: float = 0.1
     train_size: int = 45000
     val_size: int = 5000

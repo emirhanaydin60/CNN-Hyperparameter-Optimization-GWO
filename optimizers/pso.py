@@ -31,11 +31,7 @@ class ParticleSwarmOptimizer(BaseOptimizer):
             for particle_index in range(self.population):
                 r1 = self.random_state.random(self.dim)
                 r2 = self.random_state.random(self.dim)
-                velocities[particle_index] = (
-                    inertia * velocities[particle_index]
-                    + c1 * r1 * (pbest_pos[particle_index] - positions[particle_index])
-                    + c2 * r2 * (gbest_pos - positions[particle_index])
-                )
+                velocities[particle_index] = inertia * velocities[particle_index] + c1 * r1 * (pbest_pos[particle_index] - positions[particle_index]) + c2 * r2 * (gbest_pos - positions[particle_index])
                 positions[particle_index] = self._clip(positions[particle_index] + velocities[particle_index])
 
             fitness = [self._evaluate(position, iteration=iteration, agent_id=index + 1) for index, position in enumerate(positions)]

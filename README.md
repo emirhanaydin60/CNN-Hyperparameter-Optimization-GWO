@@ -1,132 +1,213 @@
 # CNN Hyperparameter Optimization Research Framework
 
-Bu proje, CIFAR-10 üzerinde çalışan sabit HybridCNN mimarisiyle GWO, PSO, WOA ve RAO algoritmalarını aynı koşullarda karşılaştıran araştırma çerçevesidir.
+Bu depo, CIFAR-10 üzerinde çalışan sabit HybridCNN mimarisini GWO, PSO, WOA ve RAO ile aynı deney koşullarında karşılaştırmak için tasarlanmış yayın odaklı bir araştırma çerçevesidir. Tek giriş noktası `python train.py` komutudur; bu komut deneyleri yürütür, çoklu-run çıktıları üretir, istatistiksel analizi tamamlar ve nihai araştırma raporunu otomatik oluşturur.
 
-## Proje Amacı
+## Deney Tasarımı
 
-Amaç, tüm algoritmaları aynı veri bölünmesi, aynı seed stratejisi, aynı search space, aynı training stratejisi ve aynı evaluation prosedürü ile çalıştırarak adil bir karşılaştırma üretmektir.
+Varsayılan kurulum çoklu-run’dur.
 
-## Veri Seti
+- `runs = 3`
+- `population_size = 8`
+- `iteration_count = 15`
+- `search_epochs = 6`
+- `final_epochs = 50`
+- `random_seed = 42`
 
-- Veri seti: CIFAR-10
-- Görüntü boyutu: 32x32 RGB
-- Giriş kanalı: 3
-- Sınıf sayısı: 10
-- Bölünme: 45.000 train, 5.000 validation, 10.000 test
+Her optimizer aynı veri setini, aynı train/validation/test ayrımını, aynı CNN mimarisini, aynı search space’i, aynı fitness fonksiyonunu, aynı eğitim prosedürünü ve aynı değerlendirme prosedürünü kullanır.
 
-## CNN Mimarisi
+Her optimizer üç bağımsız seed ile çalıştırılır ve run çıktıları üzerine yazılmaz; yeni koşular `run_XX` dizinlerine eklenir.
 
-Kullanılan model sabit bir HybridCNN’dir:
+## Proje Yapısı
 
-- Stem: Conv + BatchNorm + ReLU
-- Residual Block
-- Inception-Lite Block
-- Residual Block
-- SE Attention Block
-- Global Average Pooling
-- Dense + Dropout + Output Layer
+- [config.py](config.py): merkezi deney konfigürasyonu, optimizer listesi ve search space.
+- [train.py](train.py): tek komutluk ana giriş noktası.
+- [experiment_runner.py](experiment_runner.py): optimizer döngüsü, veri yükleme, fitness değerlendirme, final eğitim, run-level raporlama ve nihai raporun tetiklenmesi.
+- [research_analysis.py](research_analysis.py): Friedman testi, Wilcoxon testleri, hyperparameter landscape analizi, convergence/diversity/stability görselleştirmeleri ve final report üretimi.
+- [analyze_results.py](analyze_results.py): legacy/manuel analiz aracı; ana akışta kullanılmaz.
+- [data_loader.py](data_loader.py): dataset indirme, split ve DataLoader oluşturma.
+- [model.py](model.py): sabit HybridCNN mimarisi.
+- [metrics.py](metrics.py): eğitim ve değerlendirme metrikleri.
+- [plotting.py](plotting.py): run-level görseller.
+- [utils.py](utils.py): seed, logging, JSON ve dosya yardımcıları.
+- [optimizers/](optimizers/): ortak arayüz ve GWO/PSO/WOA/RAO implementasyonları.
+- [finalize_results.py](finalize_results.py): legacy sonuç yeniden oluşturma aracı.
+- [plot_results.py](plot_results.py): legacy plotting uyumluluk dosyası.
+- [gwo.py](gwo.py): legacy tek-algorithm GWO uygulaması.
 
-Metaheuristic algoritmalar tarafından optimize edilen hiperparametreler:
+## Çalışma Akışı
 
-- `shared_conv_kernel_size`
-- `base_filters`
-- `dilation`
-- `final_neurons`
-- `dropout`
-- `learning_rate`
-- `batch_size`
-- `se_ratio`
-
-## Metaheuristic Algoritmalar
-
-Desteklenen algoritmalar:
-
-- GWO
-- PSO
-- WOA
-- RAO
-
-Hepsi aynı `BaseOptimizer` arayüzüne bağlıdır. Varsayılan adil karşılaştırma ayarı `population_size = 8` ve `iteration_count = 15` şeklindedir.
-
-## Konfigürasyon Yönetimi
-
-Tüm deney parametreleri merkezi olarak `config.py` içinde tutulur veya JSON üzerinden override edilebilir.
-
-Önemli parametreler:
-
-- `optimizers`
-- `population_size`
-- `iteration_count`
-- `search_epochs`
-- `final_epochs`
-- `batch_size`
-- `learning_rate`
-- `subset_size`
-- `random_seed`
-- `patience`
-- `runs`
-
-## Çalıştırma Komutları
-
-Tek bir algoritma çalıştırmak için:
-
-```bash
-python train.py --optimizer gwo
+```mermaid
+flowchart TD
+    A[config.py] --> B[train.py]
+    B --> C[experiment_runner.py]
+    C --> D[data_loader.py]
+    C --> E[model.py]
+    C --> F[optimizers/*]
+    C --> G[metrics.py]
+    C --> H[plotting.py]
+    C --> I[research_analysis.py]
+    I --> J[results/CIFAR10/final_report/]
+    J --> K[publication tables and plots]
 ```
 
-Tüm algoritmaları çalıştırmak için:
+Akışın özeti:
+
+1. `config.py` deney sabitlerini tanımlar.
+2. `train.py` doğrudan `experiment_runner.main()` çağırır.
+3. `experiment_runner.py` listedeki tüm optimizer’ları sırayla çalıştırır.
+4. Her optimizer için `runs` kadar bağımsız seed türetilir.
+5. Her run için veri seti yüklenir, candidate -> CNN -> kısa eğitim -> validation fitness -> optimizer update zinciri uygulanır.
+6. En iyi çözümle final model yeniden eğitilir ve test değerlendirmesi yapılır.
+7. Her run için `summary.json`, eğitim eğrileri, confusion matrix ve search history yazılır.
+8. Tüm run’lar tamamlanınca `research_analysis.py` otomatik çağrılır.
+9. Final report oluşturulur ve publication-ready tablolar / figürler üretilir.
+
+## Tek Komutlu Çalıştırma
+
+Ana deney komutu:
 
 ```bash
 python train.py
 ```
 
-JSON konfigürasyon ile:
+İsteğe bağlı olarak tek bir optimizer seçilebilir:
+
+```bash
+python train.py --optimizer gwo
+```
+
+JSON config ile override:
 
 ```bash
 python train.py --config my_config.json
 ```
 
-İkinci aşama analiz için:
+## Run-Level Çıktılar
 
-```bash
-python analyze_results.py --results-dir results --dataset cifar10
+Her optimizer için yapı:
+
+```text
+results/CIFAR10/<ALGORITHM>/run_XX/
 ```
 
-## Sonuç Dosyaları
+Her run klasöründe:
 
-Çalışma sonunda sonuçlar `results/CIFAR10/<ALGORITHM>/run_XX/` altında tutulur. Her koşuda `summary.json` üretilir; algoritma özetleri ise `results/CIFAR10/<ALGORITHM>/summary.json` içinde saklanır.
+- `config_used.json`
+- `summary.json`
+- `search_history.csv`
+- `best_model.pth`
+- `global_best.png`
+- `local_bests.png`
+- `training_curves.png`
+- `confusion_matrix.png`
 
-Karşılaştırma çıktıları `results/CIFAR10/comparison/` içinde üretilir:
+`summary.json` aşağıdaki temel alanları içerir:
+
+- best validation accuracy
+- best test accuracy
+- precision
+- recall
+- f1
+- runtime_seconds
+- best_hyperparameters
+- convergence_history
+- diversity_history
+- exploration_history
+- exploitation_history
+- iteration_summaries
+- package_versions
+
+## Algorithm-Level Çıktılar
+
+Her optimizer için:
+
+```text
+results/CIFAR10/<ALGORITHM>/summary.json
+```
+
+Bu dosya, tüm run’ları ve algoritma düzeyindeki ortalama / std özetlerini içerir.
+
+## Final Research Report
+
+Tüm deneyler tamamlandıktan sonra nihai yayın klasörü otomatik üretilir:
+
+```text
+results/CIFAR10/final_report/
+```
+
+Bu klasör, makale yazımına başlanacak ana üretim alanıdır.
+
+Önemli içerikler:
 
 - `overall_summary.json`
-- `performance_comparison.csv`
-- `runtime_comparison.csv`
-- `stability_comparison.csv`
 - `ranking_table.csv`
-- `accuracy_comparison.png`
-- `runtime_plot.png`
-- `convergence_comparison.csv`
-- `convergence_plot.png`
-- `boxplot_accuracy.png`
-- `boxplot_runtime.png`
+- `friedman_results.json`
+- `wilcoxon_results.csv`
+- `hyperparameter_summary.csv`
+- `population_statistics.csv`
+- `diversity_comparison.csv`
+- `best_hyperparameters_all_runs.csv`
+- `best_hyperparameters_per_algorithm.csv`
+- `convergence_comparison.png`
+- `mean_convergence_comparison.png`
+- `diversity_comparison.png`
+- `accuracy_boxplot.png`
+- `f1_boxplot.png`
+- `runtime_boxplot.png`
+- `hyperparameter_analysis/`
 
-## Dosya Açıklamaları
+### `hyperparameter_analysis/`
 
-- `summary.json`: tek koşunun tüm metrikleri, süreleri, en iyi hiperparametreleri ve convergence geçmişi
-- `results/CIFAR10/<ALGORITHM>/summary.json`: algoritma bazlı çoklu-run özeti
-- `results/CIFAR10/comparison/overall_summary.json`: tüm algoritmalar için birleştirilmiş özet
-- `performance_comparison.csv`: tüm koşular için satır bazlı performans tablosu
-- `runtime_comparison.csv`: algoritma bazlı runtime özeti
-- `stability_comparison.csv`: mean/std stabilite özeti
-- `ranking_table.csv`: test doğruluğuna göre sıralama
+Bu alt klasör, bütün run’lardan toplanan en iyi hiperparametrelerin dağılım analizini içerir.
 
-`population_size = 8` ve `iteration_count = 15` varsayılan olarak korunmuştur; bu, mevcut GWO 8 kurt x 15 iterasyon koşusuyla adil karşılaştırmayı sağlar.
+Beklenen içerik:
 
-Yeni algoritma eklemek için `optimizers/` altına yeni sınıf ekleyip `config.py` içindeki `optimizers` listesine dahil etmek yeterlidir.
+- her optimize edilmiş hiperparametre için histogram
+- her optimize edilmiş hiperparametre için boxplot
+- publication-oriented dağılım görselleri
+
+## İstatistiksel ve Görsel Analizler
+
+Final report otomatik olarak aşağıdaki analizleri üretir:
+
+- Friedman testi, `test_accuracy` metriği üzerinden
+- Wilcoxon signed-rank pairwise testleri
+- mean convergence comparison
+- per-optimizer multi-run convergence plots
+- diversity evolution comparison
+- stability boxplots
+- hyperparameter landscape summary
+- population statistics per iteration
+
+## Veri ve Mimarinin Sabitliği
+
+Karşılaştırma adilliği için aşağıdakiler tüm algoritmalarda aynıdır:
+
+- dataset
+- train/validation/test split
+- CNN mimarisi
+- search space
+- fitness function
+- training strategy
+- evaluation procedure
+- seed türetme stratejisi
+
+Varsayılan olarak GWO’daki 8 kurt x 15 iterasyon düzeni korunmuştur; diğer algoritmalar da aynı population ve iteration bütçesi ile çalışır.
+
+## Reproducibility
+
+Her run için aşağıdaki bilgiler kaydedilir:
+
+- kullanılan config
+- run seed
+- search space
+- package versions
+- summary.json
+
+Bu nedenle deneyler yeniden üretilebilir olacak şekilde tasarlanmıştır; ancak bit düzeyinde tam determinism GPU ve CUDA sürümüne bağlıdır.
 
 ## Notlar
 
-- Eğitim sırasında seed sabitlenir; random, numpy, torch ve CUDA tarafı aynı seed mekanizmasına bağlıdır.
-- Final eğitimde train + validation birleşik veri kullanılır.
-- Confusion matrix normalize edilmiş olarak kaydedilir.
-- Baseline model sabit hiperparametrelerle çalışır; yalnızca GWO tarafında hiperparametreler optimize edilir.
+- `analyze_results.py` artık ana akışta kullanılmaz; final analiz `train.py` tarafından otomatik yürütülür.
+- `finalize_results.py` ve `gwo.py` depo içinde legacy uyumluluk dosyalarıdır.
+- `results/` altındaki eski çıktılar korunabilir; yeni koşular mevcut run’ları ezmez.

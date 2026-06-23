@@ -4,6 +4,8 @@ import csv
 import os
 import random
 import time
+import re
+import sys
 
 import numpy as np
 import torch
@@ -17,8 +19,8 @@ from metrics import build_confusion_matrix, evaluate_model, train_one_epoch
 from model import HybridCNN
 from optimizers import GreyWolfOptimizer, ParticleSwarmOptimizer, RaoOptimizer, WhaleOptimizationOptimizer
 from plotting import plot_confusion_matrix, plot_curves, plot_global, plot_locals
-from utils import ensure_dir, make_torch_generator, set_global_seed, setup_logging, write_json
-
+from research_analysis import build_final_report
+from utils import ensure_dir, make_torch_generator, read_json, set_global_seed, setup_logging, write_json
 
 CLASS_NAMES = [
     "airplane",
@@ -427,7 +429,7 @@ def save_run_outputs(run_dir, algorithm_name, config, search_result, final_resul
             "unique_solutions_evaluated": search_result["unique_solutions_evaluated"],
         },
         "package_versions": {
-            "python": f"{os.sys.version_info.major}.{os.sys.version_info.minor}.{os.sys.version_info.micro}",
+            "python": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
             "numpy": np.__version__,
             "torch": torch.__version__,
         },
@@ -437,13 +439,27 @@ def save_run_outputs(run_dir, algorithm_name, config, search_result, final_resul
 
 
 def run_single_experiment(base_config, algorithm_name, run_index, logger):
-    run_seed = base_config.random_seed + run_index
     run_config = copy.deepcopy(base_config)
+
+    run_number = run_index + 1
+    run_dir = _run_dir_for_index(base_config.results_dir, base_config.dataset, algorithm_name, run_number)
+    summary_path = os.path.join(run_dir, "summary.json")
+    if os.path.exists(summary_path):
+        logger.info("run_skip=%s algorithm=%s run_dir=%s reason=completed", run_number, algorithm_name, run_dir)
+        return {
+            "run_dir": run_dir,
+            "search_result": None,
+            "final_result": None,
+            "best_config": None,
+            "summary": read_json(summary_path),
+            "skipped": True,
+        }
+
+    ensure_dir(run_dir)
+    run_seed = base_config.random_seed + run_number - 1
     run_config.random_seed = run_seed
 
     set_global_seed(run_seed)
-    run_dir = os.path.join(base_config.results_dir, base_config.dataset.upper(), algorithm_name.upper(), f"run_{run_index + 1:02d}")
-    ensure_dir(run_dir)
 
     bundle = build_data_bundle(
         dataset=run_config.dataset,
@@ -473,12 +489,23 @@ def run_single_experiment(base_config, algorithm_name, run_index, logger):
 
 
 def run_algorithm(base_config, algorithm_name, logger):
-    algorithm_runs = [run_single_experiment(base_config, algorithm_name, run_index, logger) for run_index in range(base_config.runs)]
     algorithm_dir = os.path.join(base_config.results_dir, base_config.dataset.upper(), algorithm_name.upper())
+    algorithm_runs = []
+    for run_index in range(base_config.runs):
+        algorithm_runs.append(run_single_experiment(base_config, algorithm_name, run_index, logger))
+
+    all_run_summaries = []
+    if os.path.isdir(algorithm_dir):
+        for entry in sorted(os.listdir(algorithm_dir)):
+            if not entry.startswith("run_"):
+                continue
+            summary_path = os.path.join(algorithm_dir, entry, "summary.json")
+            if os.path.exists(summary_path):
+                all_run_summaries.append(read_json(summary_path))
     summary = {
         "algorithm": algorithm_name,
         "dataset": base_config.dataset,
-        "runs": [item["summary"] for item in algorithm_runs],
+        "runs": all_run_summaries,
         "config": config_to_dict(base_config),
     }
     summary["aggregate"] = {
@@ -494,6 +521,23 @@ def run_algorithm(base_config, algorithm_name, logger):
     }
     write_json(os.path.join(algorithm_dir, "summary.json"), summary)
     return summary
+
+
+def _allocate_run_dir(results_dir, dataset, algorithm_name):
+    algorithm_dir = os.path.join(results_dir, dataset.upper(), algorithm_name.upper())
+    ensure_dir(algorithm_dir)
+    existing_indices = []
+    for entry in os.listdir(algorithm_dir):
+        match = re.fullmatch(r"run_(\d+)", entry)
+        if match:
+            existing_indices.append(int(match.group(1)))
+    next_index = max(existing_indices, default=0) + 1
+    return os.path.join(algorithm_dir, f"run_{next_index:02d}")
+
+
+def _run_dir_for_index(results_dir, dataset, algorithm_name, run_number):
+    algorithm_dir = os.path.join(results_dir, dataset.upper(), algorithm_name.upper())
+    return os.path.join(algorithm_dir, f"run_{run_number:02d}")
 
 
 def main():
@@ -567,6 +611,9 @@ def main():
             "config": config_to_dict(config),
         },
     )
+
+    final_report = build_final_report(config.results_dir, config.dataset, config_to_dict(config))
+    write_json(os.path.join(comparison_dir, "final_report_pointer.json"), final_report)
     logger.info("experiment_complete total_time=%.2f", total_time)
 
 
