@@ -3,9 +3,14 @@ from typing import Optional
 import json
 
 
+OPTIMIZERS = ["gwo", "pso", "woa", "rao"]
+
+
 @dataclass
 class ExperimentConfig:
     dataset: str = "cifar10"
+    model_name: str = "hybrid_cnn"
+    optimizers: list[str] = field(default_factory=lambda: OPTIMIZERS.copy())
     population_size: int = 8
     iteration_count: int = 15
     search_epochs: int = 6

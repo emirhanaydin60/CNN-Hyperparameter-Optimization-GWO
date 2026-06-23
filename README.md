@@ -1,10 +1,10 @@
-# CNN Hyperparameter Optimization with GWO
+# CNN Hyperparameter Optimization Research Framework
 
-Bu proje, CIFAR-10 veri seti üzerinde çalışan sabit bir HybridCNN mimarisinin hiperparametrelerini Grey Wolf Optimizer (GWO) ile optimize eden, sonuçları akademik raporlamaya uygun şekilde kaydeden deney paketidir.
+Bu proje, CIFAR-10 üzerinde çalışan sabit HybridCNN mimarisiyle GWO, PSO, WOA ve RAO algoritmalarını aynı koşullarda karşılaştıran araştırma çerçevesidir.
 
 ## Proje Amacı
 
-Amaç, sabit HybridCNN mimarisi üzerinde baseline deney ile GWO ile optimize edilmiş modeli karşılaştırmak ve optimizasyonun test doğruluğuna etkisini ölçmektir. Tüm arama süreci validation accuracy üzerinden yürütülür; test seti yalnızca final değerlendirmede kullanılır.
+Amaç, tüm algoritmaları aynı veri bölünmesi, aynı seed stratejisi, aynı search space, aynı training stratejisi ve aynı evaluation prosedürü ile çalıştırarak adil bir karşılaştırma üretmektir.
 
 ## Veri Seti
 
@@ -26,7 +26,7 @@ Kullanılan model sabit bir HybridCNN’dir:
 - Global Average Pooling
 - Dense + Dropout + Output Layer
 
-GWO tarafından optimize edilen hiperparametreler:
+Metaheuristic algoritmalar tarafından optimize edilen hiperparametreler:
 
 - `shared_conv_kernel_size`
 - `base_filters`
@@ -37,9 +37,16 @@ GWO tarafından optimize edilen hiperparametreler:
 - `batch_size`
 - `se_ratio`
 
-## GWO Algoritması
+## Metaheuristic Algoritmalar
 
-GWO, her aday CNN konfigürasyonunu kısa süreli bir eğitimle değerlendirir. Fitness değeri validation accuracy’dir. Her iterasyonda kurtların pozisyonları alpha, beta ve delta rehberliğinde güncellenir. En iyi çözüm validation accuracy’ye göre seçilir.
+Desteklenen algoritmalar:
+
+- GWO
+- PSO
+- WOA
+- RAO
+
+Hepsi aynı `BaseOptimizer` arayüzüne bağlıdır. Varsayılan adil karşılaştırma ayarı `population_size = 8` ve `iteration_count = 15` şeklindedir.
 
 ## Konfigürasyon Yönetimi
 
@@ -47,6 +54,7 @@ Tüm deney parametreleri merkezi olarak `config.py` içinde tutulur veya JSON ü
 
 Önemli parametreler:
 
+- `optimizers`
 - `population_size`
 - `iteration_count`
 - `search_epochs`
@@ -60,16 +68,16 @@ Tüm deney parametreleri merkezi olarak `config.py` içinde tutulur veya JSON ü
 
 ## Çalıştırma Komutları
 
-Tek koşu:
+Tek bir algoritma çalıştırmak için:
 
 ```bash
-python train.py --population-size 12 --iteration-count 15 --search-epochs 6 --final-epochs 20
+python train.py --optimizer gwo
 ```
 
-Çoklu koşu:
+Tüm algoritmaları çalıştırmak için:
 
 ```bash
-python train.py --runs 3 --population-size 12 --iteration-count 15 --search-epochs 6 --final-epochs 20
+python train.py
 ```
 
 JSON konfigürasyon ile:
@@ -78,42 +86,43 @@ JSON konfigürasyon ile:
 python train.py --config my_config.json
 ```
 
+İkinci aşama analiz için:
+
+```bash
+python analyze_results.py --results-dir results --dataset cifar10
+```
+
 ## Sonuç Dosyaları
 
-Çalışma sonunda `results/` içinde aşağıdaki dosyalar otomatik oluşturulur:
+Çalışma sonunda sonuçlar `results/CIFAR10/<ALGORITHM>/run_XX/` altında tutulur. Her koşuda `summary.json` üretilir; algoritma özetleri ise `results/CIFAR10/<ALGORITHM>/summary.json` içinde saklanır.
 
-- `best_model.pth`
-- `best_config.txt`
-- `final_results.txt`
-- `statistics.txt`
-- `timing.txt`
-- `convergence.txt`
-- `confusion_analysis.txt`
-- `diversity_analysis.txt`
-- `summary.csv`
-- `search_history.csv`
-- `search_space.json`
-- `config_used.json`
-- `run.log`
-- `global_best.png`
-- `local_bests.png`
-- `accuracy_curve.png`
-- `loss_curve.png`
-- `confusion_matrix.png`
+Karşılaştırma çıktıları `results/CIFAR10/comparison/` içinde üretilir:
+
+- `overall_summary.json`
+- `performance_comparison.csv`
+- `runtime_comparison.csv`
+- `stability_comparison.csv`
+- `ranking_table.csv`
+- `accuracy_comparison.png`
+- `runtime_plot.png`
+- `convergence_comparison.csv`
+- `convergence_plot.png`
+- `boxplot_accuracy.png`
+- `boxplot_runtime.png`
 
 ## Dosya Açıklamaları
 
-- `final_results.txt`: deney parametreleri, baseline/GWO doğrulukları, improvement değerleri ve zaman bilgileri
-- `statistics.txt`: çoklu koşularda accuracy ve improvement için mean/std özetleri
-- `timing.txt`: optimizasyon, baseline eğitim, final eğitim ve toplam deney süreleri
-- `convergence.txt`: GWO yakınsama özeti
-- `diversity_analysis.txt`: iterasyon bazlı unique solution ve fitness özeti
-- `confusion_analysis.txt`: en çok karışan sınıflar ve sınıf bazlı doğruluk analizi
-- `summary.csv`: her koşu için kısa karşılaştırma tablosu
-- `search_history.csv`: her fitness değerlendirmesinin kayıtları ve değerlendirme süreleri
-- `search_space.json`: arama uzayı tanımı
-- `config_used.json`: deneyde kullanılan konfigürasyon
-- `run.log`: deney sürecinin log kaydı
+- `summary.json`: tek koşunun tüm metrikleri, süreleri, en iyi hiperparametreleri ve convergence geçmişi
+- `results/CIFAR10/<ALGORITHM>/summary.json`: algoritma bazlı çoklu-run özeti
+- `results/CIFAR10/comparison/overall_summary.json`: tüm algoritmalar için birleştirilmiş özet
+- `performance_comparison.csv`: tüm koşular için satır bazlı performans tablosu
+- `runtime_comparison.csv`: algoritma bazlı runtime özeti
+- `stability_comparison.csv`: mean/std stabilite özeti
+- `ranking_table.csv`: test doğruluğuna göre sıralama
+
+`population_size = 8` ve `iteration_count = 15` varsayılan olarak korunmuştur; bu, mevcut GWO 8 kurt x 15 iterasyon koşusuyla adil karşılaştırmayı sağlar.
+
+Yeni algoritma eklemek için `optimizers/` altına yeni sınıf ekleyip `config.py` içindeki `optimizers` listesine dahil etmek yeterlidir.
 
 ## Notlar
 

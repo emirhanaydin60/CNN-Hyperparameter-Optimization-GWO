@@ -12,11 +12,11 @@ def _ensure_parent_dir(path):
         os.makedirs(parent, exist_ok=True)
 
 
-def plot_global(global_bests, out_path):
+def plot_global(global_bests, out_path, title="Global Best Fitness"):
     _ensure_parent_dir(out_path)
     plt.figure(figsize=(8, 4))
     plt.plot(global_bests, marker="o", label="Global Best")
-    plt.title("GWO Global Best Fitness")
+    plt.title(title)
     plt.xlabel("Iteration")
     plt.ylabel("Validation Accuracy")
     plt.legend()
@@ -26,13 +26,13 @@ def plot_global(global_bests, out_path):
     plt.close()
 
 
-def plot_locals(local_bests, out_path):
+def plot_locals(local_bests, out_path, title="Local Bests"):
     _ensure_parent_dir(out_path)
     arr = np.array(local_bests)
     plt.figure(figsize=(10, 5))
     for i in range(arr.shape[1]):
         plt.plot(arr[:, i], label=f"Wolf {i + 1}")
-    plt.title("GWO Local Bests")
+    plt.title(title)
     plt.xlabel("Iteration")
     plt.ylabel("Personal Best Validation Accuracy")
     plt.legend(fontsize="small")
